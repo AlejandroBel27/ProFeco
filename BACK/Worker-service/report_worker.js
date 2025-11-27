@@ -2,7 +2,7 @@
 const amqp = require('amqplib');
 // Opcional: const { sequelize } = require('./configDB'); // Si el Worker necesita la BD
 
-const AMQPS_URL = 'amqps://user:password@tu-servidor-rabbit.com:5671';
+const AMQPS_URL = 'amqp://localhost:5672';
 const QUEUE_NAME = 'cola_reportes_mercado';
 
 async function startReportWorker() {

@@ -1,7 +1,7 @@
 const amqp = require('amqplib');
 
 // URL de conexión cifrada (AMQPS)
-const AMQPS_URL = 'amqps://user:password@tu-servidor-rabbit.com:5671';
+const AMQPS_URL = 'amqp://localhost:5672';
 const QUEUE_NAME = 'cola_reportes_mercado'; 
 
 async function enviarTareaReporte(tipoReporte, fechaInicio, correoDestino) {
