@@ -5,7 +5,7 @@ const { Sequelize, DataTypes } = require('sequelize');
 const sequelize = new Sequelize('db_mercado', 'root', '63690Val', {
   host: 'localhost',
   dialect: 'mysql',
-  logging: false
+  logging: true
 });
 
 // 2. Definición del Modelo
@@ -41,4 +41,7 @@ async function iniciarBaseDeDatos() {
 
 iniciarBaseDeDatos();
 
-module.exports = Producto;
+module.exports = {
+    sequelize,
+    Producto 
+};

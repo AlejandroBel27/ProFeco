@@ -16,25 +16,25 @@ const { sequelize, Producto } = require('./modeloProducto');
 
 // Cargar certificados SSL (¡REQUERIDOS para HTTPS y WSS!)
 const credentials = {
-    key: fs.readFileSync('private.key', 'utf8'),
-    cert: fs.readFileSync('certificate.crt', 'utf8')
+    key: fs.readFileSync('private.key', 'utf8'),
+    cert: fs.readFileSync('certificate.crt', 'utf8')
 };
 
 // --- 2. FUNCIÓN DE INICIALIZACIÓN DE LA BASE DE DATOS ---
 
 async function iniciarBaseDeDatos() {
-    try {
-        await sequelize.authenticate();
-        console.log("Conexión exitosa a MySQL (DB Mercado)");
+    try {
+        await sequelize.authenticate();
+        console.log("Conexión exitosa a MySQL (DB Mercado)");
 
-        // Sincronización: Crea o verifica la tabla 'Productos'
-        await sequelize.sync({ alter: true });
-        console.log("Tablas sincronizadas automáticamente por Sequelize.");
+        // Sincronización: Crea o verifica la tabla 'Productos'
+        await sequelize.sync({ alter: true });
+        console.log("Tablas sincronizadas automáticamente por Sequelize.");
 
-    } catch (error) {
-        console.error("Error al iniciar la Base de Datos:", error.message);
-        process.exit(1); 
-    }
+    } catch (error) {
+        console.error("Error al iniciar la Base de Datos:", error.message);
+        process.exit(1); 
+    }
 }
 
 
@@ -45,16 +45,17 @@ app.use(express.json());
 
 // Ruta de prueba
 app.get('/', (req, res) => {
-    res.send('API REST Mercado funcionando. Conexión segura lista.');
+    res.send('API REST Mercado funcionando. Conexión segura lista.');
 });
 
 // Ejemplo de Ruta Síncrona (Acceso directo a la BD)
 app.get('/api/productos', async (req, res) => {
     try {
-        // Consulta segura y parametrizada por Sequelize
         const productos = await Producto.findAll();
         res.json({ productos, seguridad: "Consulta parametrizada por Sequelize." });
     } catch (error) {
+        // 🚨 CAMBIO CLAVE: Imprimir el error real de MySQL/Sequelize 
+        console.error("🚨 ERROR REAL DE PERSISTENCIA:", error.message);
         res.status(500).json({ error: 'Error al obtener productos.' });
     }
 });
@@ -63,23 +64,23 @@ app.get('/api/productos', async (req, res) => {
 // --- 4. RUTA ASÍNCRONA (DELEGACIÓN A RABBITMQ / AMQPS) ---
 
 app.post('/api/reportes', async (req, res) => {
-    const { tipo, correo } = req.body;
-    
-    // El Backend delega el trabajo pesado
-    const resultadoDelegacion = await enviarTareaReporte(tipo, new Date().toISOString(), correo);
+    const { tipo, correo } = req.body;
+    
+    // El Backend delega el trabajo pesado
+    const resultadoDelegacion = await enviarTareaReporte(tipo, new Date().toISOString(), correo);
 
-    if (resultadoDelegacion.success) {
-        // Respuesta Inmediata (202 Accepted) sin esperar el resultado de la tarea
-        res.status(202).json({ 
-            mensaje: `Reporte tipo ${tipo} delegado.`,
-            estado: 'Procesamiento asíncrono iniciado'
-        });
-    } else {
-        res.status(500).json({ 
-            mensaje: 'Error interno al delegar la tarea.',
-            detalles: resultadoDelegacion.error
-        });
-    }
+    if (resultadoDelegacion.success) {
+        // Respuesta Inmediata (202 Accepted) sin esperar el resultado de la tarea
+        res.status(202).json({ 
+            mensaje: `Reporte tipo ${tipo} delegado.`,
+            estado: 'Procesamiento asíncrono iniciado'
+        });
+    } else {
+        res.status(500).json({ 
+            mensaje: 'Error interno al delegar la tarea.',
+            detalles: resultadoDelegacion.error
+        });
+    }
 });
 
 
@@ -93,27 +94,27 @@ const wss = new WebSocket.Server({ server: httpsServer });
 
 // Lógica de gestión de conexiones WSS
 wss.on('connection', function connection(ws, req) {
-    console.log(`Cliente conectado por canal WSS seguro: ${req.socket.remoteAddress}`);
-    
-    // --- SIMULACIÓN DE NOTIFICACIÓN EN TIEMPO REAL ---
-    setTimeout(() => {
-        const message = JSON.stringify({
-            tipo: 'alerta_precio',
-            producto: 'Artículo Z',
-            mensaje: 'Alerta generada por el Backend y enviada por WSS.',
-            protocolo: 'WSS Cifrado'
-        });
-        ws.send(message); 
-        console.log('Notificación de alerta enviada por WSS.');
-    }, 10000);
+    console.log(`Cliente conectado por canal WSS seguro: ${req.socket.remoteAddress}`);
+    
+    // --- SIMULACIÓN DE NOTIFICACIÓN EN TIEMPO REAL ---
+    setTimeout(() => {
+        const message = JSON.stringify({
+            tipo: 'alerta_precio',
+            producto: 'Artículo Z',
+            mensaje: 'Alerta generada por el Backend y enviada por WSS.',
+            protocolo: 'WSS Cifrado'
+        });
+        ws.send(message); 
+        console.log('Notificación de alerta enviada por WSS.');
+    }, 10000);
 
-    ws.on('close', () => console.log('Cliente desconectado del canal WSS.'));
+    ws.on('close', () => console.log('Cliente desconectado del canal WSS.'));
 });
 
 iniciarBaseDeDatos()
-    .then(() => {
-        // Iniciamos el servidor HTTPS/WSS
-        httpsServer.listen(port, () => {
-            console.log(`Servidor API REST y WSS Cifrado escuchando en https://localhost:${port}`);
-        });
-    });
+    .then(() => {
+        // Iniciamos el servidor HTTPS/WSS
+        httpsServer.listen(port, () => {
+            console.log(`Servidor API REST y WSS Cifrado escuchando en https://localhost:${port}`);
+        });
+    });
