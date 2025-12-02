@@ -12,7 +12,7 @@ const WebSocket = require('ws');
 const { enviarTareaReporte } = require('./servicioReportes'); 
 
 // Importar la lógica de persistencia (Sequelize)
-const { sequelize, Producto } = require('./modeloProducto'); 
+const { sequelize, Producto, Supermercado } = require('./modeloProducto'); 
 
 // Cargar certificados SSL (¡REQUERIDOS para HTTPS y WSS!)
 const credentials = {
@@ -60,27 +60,65 @@ app.get('/api/productos', async (req, res) => {
     }
 });
 
+app.post('/api/precios', async (req, res) => {
+    try {
+        const { nombre, precio, sku, categoria, supermercadoId } = req.body;
+
+        if (!nombre || !precio || !supermercadoId) {
+            return res.status(400).json({ error: "Faltan datos obligatorios (nombre, precio, supermercadoId)." });
+        }
+
+        // Buscar si ya existe una oferta para este producto y este supermercado (usamos sku si existe, sino el nombre)
+        const [producto, creado] = await Producto.findOrCreate({
+            where: {
+                // Buscamos si existe esta oferta específica para este supermercado
+                nombre: nombre, 
+                supermercadoId: supermercadoId 
+            },
+            defaults: {
+                nombre, 
+                precio, 
+                sku: sku || 'N/A', 
+                categoria,
+                supermercadoId
+            }
+        });
+
+        if (!creado) {
+            // Si la oferta ya existía, la actualizamos
+            await producto.update({ precio, categoria, sku });
+            return res.status(200).json({ mensaje: `Precio actualizado para ${nombre} en Supermercado ID ${supermercadoId}.`, producto });
+        }
+
+        res.status(201).json({ mensaje: `Nuevo producto-precio registrado para ${nombre}.`, producto });
+
+    } catch (error) {
+        console.error("🚨 Error al cargar precio:", error.message);
+        res.status(500).json({ error: 'Error al registrar el precio.', detalles: error.message });
+    }
+});
 
 // --- 4. RUTA ASÍNCRONA (DELEGACIÓN A RABBITMQ / AMQPS) ---
 
-app.post('/api/reportes', async (req, res) => {
-    const { tipo, correo } = req.body;
-    
-    // El Backend delega el trabajo pesado
-    const resultadoDelegacion = await enviarTareaReporte(tipo, new Date().toISOString(), correo);
+app.post('/api/supermercados', async (req, res) => {
+    try {
+        // req.body debe contener: nombre, direccion, latitud, longitud (opcional)
+        const nuevoSupermercado = await Supermercado.create(req.body);
 
-    if (resultadoDelegacion.success) {
-        // Respuesta Inmediata (202 Accepted) sin esperar el resultado de la tarea
-        res.status(202).json({ 
-            mensaje: `Reporte tipo ${tipo} delegado.`,
-            estado: 'Procesamiento asíncrono iniciado'
-        });
-    } else {
-        res.status(500).json({ 
-            mensaje: 'Error interno al delegar la tarea.',
-            detalles: resultadoDelegacion.error
-        });
-    }
+        // Envía una respuesta 201 (Creado) con los datos del nuevo registro
+        res.status(201).json({ 
+            mensaje: 'Supermercado creado exitosamente.',
+            supermercado: nuevoSupermercado 
+        });
+
+    } catch (error) {
+        console.error("🚨 Error al crear supermercado:", error.message);
+        // Manejo de errores de Sequelize (ej. datos faltantes o nombre duplicado)
+        res.status(400).json({ 
+            error: 'No se pudo crear el supermercado.', 
+            detalles: error.message 
+        });
+    }
 });
 
 
