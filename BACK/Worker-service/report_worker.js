@@ -1,59 +1,72 @@
-// reportWorker.js
-const amqp = require('amqplib');
-// Opcional: const { sequelize } = require('./configDB'); // Si el Worker necesita la BD
+const amqp = require('amqplib'); 
 const { sequelize, Inconsistencia } = require('../Back_Mercado/modeloProducto');
-const AMQPS_URL = 'amqp://guest:guest@localhost:5672';
-const QUEUE_NAME = 'cola_reportes_mercado';
+
+// Nombres y URLs estandarizados (USAR RABBITMQ_URL para la conexión)
+const RABBITMQ_URL = 'amqp://guest:guest@127.0.0.1:5672'; 
+const QUEUE_NAME = 'cola_final_mercado';
+const EXCHANGE_NAME = 'profeco_exchange'; // Debe coincidir con servicioReportes.js
+const BINDING_KEY = 'reporte_key'; 
 
 async function startReportWorker() {
     try {
-        // Conexión AMQPS cifrada al Broker
-        const connection = await amqp.connect(AMQPS_URL);
+        const connection = await amqp.connect(RABBITMQ_URL); 
         const channel = await connection.createChannel();
 
-        await channel.assertQueue(QUEUE_NAME, { durable: true });
-        console.log(`[Worker Service] Esperando tareas en AMQPS...`);
+        // 1. Asegurar que el Exchange exista
+        await channel.assertExchange(EXCHANGE_NAME, 'direct', { durable: true });
+        
+        // 2. Asegurar que la cola exista
+        await channel.assertQueue(QUEUE_NAME, { durable: true }); 
+
+        // 3. Crear el Enlace (Binding)
+        await channel.bindQueue(QUEUE_NAME, EXCHANGE_NAME, BINDING_KEY);
+        
+        console.log(`[Worker Service] Esperando tareas en AMQP (conectado al Exchange)...`); 
         
         channel.consume(QUEUE_NAME, async (msg) => {
-
-            if (msg !== null) {
-
-                const tarea = JSON.parse(msg.content.toString());
-                console.log(`[Worker] Iniciando procesamiento de reporte: ${tarea.tipo}`);
-                // --- SIMULACIÓN DE TRABAJO PESADO ---
+            if (msg === null) return; 
+            console.log('[Worker] Mensaje recibido del broker.'); 
+    
+            const tarea = JSON.parse(msg.content.toString());
+            console.log(`[Worker] Iniciando procesamiento de reporte: ${tarea.tipo}`);
+            if (tarea.tipo === 'INCONSISTENCIA') {
+                
+                // ... (Lógica de autenticación y persistencia en BD)
                 try {
+                    await sequelize.authenticate();
+                    console.log('[Worker] Conexión a la BD establecida para el reporte.');
+                } catch (authError) {
+                    console.error('[Worker] FALLO FATAL DE CONEXIÓN A MySQL:', authError.message);
+                    channel.nack(msg); 
+                    return; 
+                }
 
-                    await sequelize.authenticate(); // Opcional, pero valida la conexión
-                    // Creamos el registro en la base de datos
+                try {
                     await Inconsistencia.create({
-
                         producto_nombre: tarea.datos.producto,
                         supermercado_reportado: tarea.datos.supermercado,
                         precio_encontrado: tarea.datos.precio,
                         descripcion: tarea.datos.descripcion,
                         estado: 'PENDIENTE'
-
                     });
 
                     console.log(`[Worker] Reporte de ${tarea.datos.producto} guardado en la BD.`);
 
                 } catch (dbError) {
-
-                    console.error('🚨 Error al guardar en la BD:', dbError.message);
-                    // Opcional: Reinsertar a la cola si falla la BD (channel.nack(msg))
-               
+                    console.error('[Worker] Error al crear registro en BD:', dbError.message);
+                    channel.nack(msg); 
+                    return;
                 }
-                // Confirmar al Broker que la tarea ha terminado
-                channel.ack(msg);
+            }
 
-            } 
-
+            // 3. Confirmar al Broker que la tarea ha terminado con éxito
+            channel.ack(msg); 
+        }, {
+            noAck: false 
         });
 
-
     } catch (error) {
-        console.error('Error fatal del Worker:', error.message);
-        // En un entorno de producción, podrías reintentar la conexión aquí.
+        console.error('Error fatal del Worker (RabbitMQ):', error.message);
     }
 }
 
