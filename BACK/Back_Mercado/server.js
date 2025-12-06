@@ -12,7 +12,7 @@ const WebSocket = require('ws');
 const { enviarTareaReporte } = require('./servicioReportes'); 
 
 // Importar la lógica de persistencia (Sequelize)
-const { sequelize, Producto } = require('./modeloProducto'); 
+const { sequelize, Producto, Supermercado } = require('./modeloProducto'); 
 
 // Cargar certificados SSL (¡REQUERIDOS para HTTPS y WSS!)
 const credentials = {
@@ -104,7 +104,6 @@ app.get('/api/productos', async (req, res) => {
     }
 
 });
-
 
 app.post('/api/precios', async (req, res) => {
 
