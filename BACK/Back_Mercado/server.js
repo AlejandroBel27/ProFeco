@@ -16,14 +16,18 @@ const { sequelize, Producto } = require('./modeloProducto');
 
 // Cargar certificados SSL (¡REQUERIDOS para HTTPS y WSS!)
 const credentials = {
+
     key: fs.readFileSync('private.key', 'utf8'),
     cert: fs.readFileSync('certificate.crt', 'utf8')
+
 };
 
 // --- 2. FUNCIÓN DE INICIALIZACIÓN DE LA BASE DE DATOS ---
 
 async function iniciarBaseDeDatos() {
+
     try {
+
         await sequelize.authenticate();
         console.log("Conexión exitosa a MySQL (DB Mercado)");
 
@@ -32,8 +36,10 @@ async function iniciarBaseDeDatos() {
         console.log("Tablas sincronizadas automáticamente por Sequelize.");
 
     } catch (error) {
+
         console.error("Error al iniciar la Base de Datos:", error.message);
         process.exit(1); 
+
     }
 }
 
@@ -45,42 +51,137 @@ app.use(express.json());
 
 // Ruta de prueba
 app.get('/', (req, res) => {
+
     res.send('API REST Mercado funcionando. Conexión segura lista.');
+
 });
 
 // Ejemplo de Ruta Síncrona (Acceso directo a la BD)
 app.get('/api/productos', async (req, res) => {
+
     try {
-        const productos = await Producto.findAll();
+
+         const { nombre } = req.query; // Capturamos el parámetro de búsqueda
+        // Definimos las opciones de consulta
+        const opcionesConsulta = {
+
+            // Incluimos el modelo Supermercado asociado
+            include: [{
+
+                model: Supermercado,
+                as: 'tienda', // Usamos el alias definido en modeloProducto.js
+                attributes: ['nombre', 'direccion', 'calificacion_promedio'] // Solo incluimos datos relevantes
+            
+            }]
+
+        };
+
+        // Si se proporciona un nombre, filtramos la consulta
+        if (nombre) {
+
+            opcionesConsulta.where = {
+
+                nombre: {
+
+                    // Usamos LIKE con comodines % para búsqueda parcial
+                    [Sequelize.Op.like]: `%${nombre}%` 
+
+                }
+
+            };
+
+        }
+        // Consulta segura y parametrizada por Sequelize
+        const productos = await Producto.findAll(opcionesConsulta);
         res.json({ productos, seguridad: "Consulta parametrizada por Sequelize." });
+
     } catch (error) {
+
         // 🚨 CAMBIO CLAVE: Imprimir el error real de MySQL/Sequelize 
         console.error("🚨 ERROR REAL DE PERSISTENCIA:", error.message);
-        res.status(500).json({ error: 'Error al obtener productos.' });
+        res.status(500).json({ error: 'Error al obtener productos para comparación.', detalles: error.message });
+
     }
+
 });
 
 
-// --- 4. RUTA ASÍNCRONA (DELEGACIÓN A RABBITMQ / AMQPS) ---
+app.post('/api/precios', async (req, res) => {
 
-app.post('/api/reportes', async (req, res) => {
-    const { tipo, correo } = req.body;
-    
-    // El Backend delega el trabajo pesado
-    const resultadoDelegacion = await enviarTareaReporte(tipo, new Date().toISOString(), correo);
+     try {
 
-    if (resultadoDelegacion.success) {
-        // Respuesta Inmediata (202 Accepted) sin esperar el resultado de la tarea
-        res.status(202).json({ 
-            mensaje: `Reporte tipo ${tipo} delegado.`,
-            estado: 'Procesamiento asíncrono iniciado'
-        });
-    } else {
-        res.status(500).json({ 
-            mensaje: 'Error interno al delegar la tarea.',
-            detalles: resultadoDelegacion.error
-        });
-    }
+        const { nombre, precio, sku, categoria, supermercadoId } = req.body;
+        if (!nombre || !precio || !supermercadoId) {
+
+            return res.status(400).json({ error: "Faltan datos obligatorios (nombre, precio, supermercadoId)." });
+        
+        }
+
+        // Buscar si ya existe una oferta para este producto y este supermercado (usamos sku si existe, sino el nombre)
+        const [producto, creado] = await Producto.findOrCreate({
+
+            where: {
+
+                // Buscamos si existe esta oferta específica para este supermercado
+                nombre: nombre, 
+                supermercadoId: supermercadoId 
+
+            },
+            defaults: {
+
+                nombre, 
+                precio, 
+                sku: sku || 'N/A', 
+                categoria,
+                supermercadoId
+
+            }
+        });
+        if (!creado) {
+
+            // Si la oferta ya existía, la actualizamos
+            await producto.update({ precio, categoria, sku });
+            return res.status(200).json({ mensaje: `Precio actualizado para ${nombre} en Supermercado ID ${supermercadoId}.`, producto });
+        
+        }
+        res.status(201).json({ mensaje: `Nuevo producto-precio registrado para ${nombre}.`, producto });
+
+    } catch (error) {
+
+        console.error("Error al cargar precio:", error.message);
+        res.status(500).json({ error: 'Error al registrar el precio.', detalles: error.message });
+    
+    }
+
+});
+
+app.post('/api/supermercados', async (req, res) => {
+
+    try {
+
+        // req.body debe contener: nombre, direccion, latitud, longitud (opcional)
+        const nuevoSupermercado = await Supermercado.create(req.body);
+        // Envía una respuesta 201 (Creado) con los datos del nuevo registro
+        res.status(201).json({ 
+
+            mensaje: 'Supermercado creado exitosamente.',
+            supermercado: nuevoSupermercado 
+
+        });
+
+    } catch (error) {
+
+        console.error("🚨 Error al crear supermercado:", error.message);
+        // Manejo de errores de Sequelize (ej. datos faltantes o nombre duplicado)
+        res.status(400).json({ 
+
+            error: 'No se pudo crear el supermercado.', 
+            detalles: error.message 
+
+        });
+        
+    }
+
 });
 
 
