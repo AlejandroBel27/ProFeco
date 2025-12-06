@@ -1,220 +1,103 @@
-// server.js (Backend Mercado)
 const express = require('express');
 const app = express();
 const port = 3000;
 
-// --- 1. IMPORTACIONES PARA WEB SOCKETS (WSS) y HTTPS ---
+// --- 1. Importaciones ---
 const https = require('https');
 const fs = require('fs');
 const WebSocket = require('ws');
+// Usamos Inconsistencia y sequelize directamente para el reporte SÍNCRONO
+const { sequelize, Inconsistencia } = require('./modeloProducto'); 
 
-// Importar la lógica de RabbitMQ (Productor Asíncrono)
-const { enviarTareaReporte } = require('./servicioReportes'); 
-
-// Importar la lógica de persistencia (Sequelize)
-const { sequelize, Producto, Supermercado } = require('./modeloProducto'); 
-
-// Cargar certificados SSL (¡REQUERIDOS para HTTPS y WSS!)
+// Cargar certificados SSL (deben estar en la misma carpeta)
 const credentials = {
-
-    key: fs.readFileSync('private.key', 'utf8'),
-    cert: fs.readFileSync('certificate.crt', 'utf8')
-
+    key: fs.readFileSync('private.key', 'utf8'),
+    cert: fs.readFileSync('certificate.crt', 'utf8')
 };
 
-// --- 2. FUNCIÓN DE INICIALIZACIÓN DE LA BASE DE DATOS ---
-
-async function iniciarBaseDeDatos() {
-
-    try {
-
-        await sequelize.authenticate();
-        console.log("Conexión exitosa a MySQL (DB Mercado)");
-
-        // Sincronización: Crea o verifica la tabla 'Productos'
-        await sequelize.sync({ alter: true });
-        console.log("Tablas sincronizadas automáticamente por Sequelize.");
-
-    } catch (error) {
-
-        console.error("Error al iniciar la Base de Datos:", error.message);
-        process.exit(1); 
-
-    }
-}
-
-
-// --- 3. CONFIGURACIÓN DE EXPRESS Y RUTAS SÍNCRONAS (HTTPS) ---
-
-// Middleware para parsear JSON
+// --- 2. CONFIGURACIÓN DE EXPRESS ---
 app.use(express.json());
 
 // Ruta de prueba
 app.get('/', (req, res) => {
-
-    res.send('API REST Mercado funcionando. Conexión segura lista.');
-
+    // Si estás aquí, el navegador confía en el certificado, lo cual es bueno para WSS.
+    res.send('API Gateway y WSS funcionando. Los microservicios escuchan en otros puertos.');
 });
 
-// Ejemplo de Ruta Síncrona (Acceso directo a la BD)
-app.get('/api/productos', async (req, res) => {
-
-    try {
-
-         const { nombre } = req.query; // Capturamos el parámetro de búsqueda
-        // Definimos las opciones de consulta
-        const opcionesConsulta = {
-
-            // Incluimos el modelo Supermercado asociado
-            include: [{
-
-                model: Supermercado,
-                as: 'tienda', // Usamos el alias definido en modeloProducto.js
-                attributes: ['nombre', 'direccion', 'calificacion_promedio'] // Solo incluimos datos relevantes
-            
-            }]
-
-        };
-
-        // Si se proporciona un nombre, filtramos la consulta
-        if (nombre) {
-
-            opcionesConsulta.where = {
-
-                nombre: {
-
-                    // Usamos LIKE con comodines % para búsqueda parcial
-                    [Sequelize.Op.like]: `%${nombre}%` 
-
-                }
-
-            };
-
-        }
-        // Consulta segura y parametrizada por Sequelize
-        const productos = await Producto.findAll(opcionesConsulta);
-        res.json({ productos, seguridad: "Consulta parametrizada por Sequelize." });
-
-    } catch (error) {
-
-        // 🚨 CAMBIO CLAVE: Imprimir el error real de MySQL/Sequelize 
-        console.error("🚨 ERROR REAL DE PERSISTENCIA:", error.message);
-        res.status(500).json({ error: 'Error al obtener productos para comparación.', detalles: error.message });
-
+// Ruta: Registrar Inconsistencias (MÉTODO SÍNCRONO)
+// Mantenida en el Gateway para la notificación WSS inmediata
+app.post('/api/reportes', async (req, res) => {
+    const tarea = req.body;
+    
+    if (!tarea || !tarea.tipo || !tarea.datos) {
+        return res.status(400).json({ error: 'Faltan campos "tipo" o "datos" en la tarea del reporte.' });
     }
 
-});
-
-app.post('/api/precios', async (req, res) => {
-
-     try {
-
-        const { nombre, precio, sku, categoria, supermercadoId } = req.body;
-        if (!nombre || !precio || !supermercadoId) {
-
-            return res.status(400).json({ error: "Faltan datos obligatorios (nombre, precio, supermercadoId)." });
+    try {
+        const { producto, supermercado, precio, descripcion } = tarea.datos;
         
-        }
+        // PERSISTENCIA DIRECTA (SÍNCRONA)
+        const nuevoReporte = await Inconsistencia.create({
+            producto_nombre: producto,
+            supermercado_reportado: supermercado,
+            precio_encontrado: precio,
+            descripcion: descripcion,
+            estado: 'PENDIENTE'
+        });
 
-        // Buscar si ya existe una oferta para este producto y este supermercado (usamos sku si existe, sino el nombre)
-        const [producto, creado] = await Producto.findOrCreate({
+        console.log(`[Gateway - SÍNCRONO] Reporte de ${producto} guardado. ID: ${nuevoReporte.id}`);
 
-            where: {
-
-                // Buscamos si existe esta oferta específica para este supermercado
-                nombre: nombre, 
-                supermercadoId: supermercadoId 
-
-            },
-            defaults: {
-
-                nombre, 
-                precio, 
-                sku: sku || 'N/A', 
-                categoria,
-                supermercadoId
-
+        // ENVÍO DE NOTIFICACIÓN EN TIEMPO REAL A TODOS LOS CLIENTES WSS
+        const broadcastMessage = JSON.stringify({
+            tipo: 'nuevo_reporte',
+            mensaje: `Se ha recibido un nuevo reporte de inconsistencia sobre ${producto}.`,
+            id: nuevoReporte.id 
+        });
+        wss.clients.forEach(client => {
+            if (client.readyState === WebSocket.OPEN) {
+                client.send(broadcastMessage);
             }
         });
-        if (!creado) {
+        console.log(`[WSS] Notificación de nuevo reporte enviada a ${wss.clients.size} clientes.`);
 
-            // Si la oferta ya existía, la actualizamos
-            await producto.update({ precio, categoria, sku });
-            return res.status(200).json({ mensaje: `Precio actualizado para ${nombre} en Supermercado ID ${supermercadoId}.`, producto });
-        
-        }
-        res.status(201).json({ mensaje: `Nuevo producto-precio registrado para ${nombre}.`, producto });
-
-    } catch (error) {
-
-        console.error("Error al cargar precio:", error.message);
-        res.status(500).json({ error: 'Error al registrar el precio.', detalles: error.message });
-    
-    }
-
-});
-
-app.post('/api/supermercados', async (req, res) => {
-
-    try {
-
-        // req.body debe contener: nombre, direccion, latitud, longitud (opcional)
-        const nuevoSupermercado = await Supermercado.create(req.body);
-        // Envía una respuesta 201 (Creado) con los datos del nuevo registro
-        res.status(201).json({ 
-
-            mensaje: 'Supermercado creado exitosamente.',
-            supermercado: nuevoSupermercado 
-
+        res.status(202).json({ 
+            mensaje: 'Reporte guardado y notificado.',
+            detalle: `ID: ${nuevoReporte.id}`
         });
-
+        
     } catch (error) {
-
-        console.error("🚨 Error al crear supermercado:", error.message);
-        // Manejo de errores de Sequelize (ej. datos faltantes o nombre duplicado)
-        res.status(400).json({ 
-
-            error: 'No se pudo crear el supermercado.', 
+        console.error("Error al procesar reporte síncrono:", error.message); 
+        res.status(500).json({ 
+            error: 'No se pudo guardar el reporte.', 
             detalles: error.message 
-
         });
-        
     }
-
 });
 
 
-// --- 5. CONFIGURACIÓN DE WSS Y ENTRADA PRINCIPAL ---
+// --- 3. CONFIGURACIÓN DE WSS Y ENTRADA PRINCIPAL ---
 
-// Creamos el servidor HTTPS que alojará tanto REST como WSS cifrado
 const httpsServer = https.createServer(credentials, app);
 
-// Creamos el Servidor WebSocket sobre el Servidor HTTPS
 const wss = new WebSocket.Server({ server: httpsServer });
 
-// Lógica de gestión de conexiones WSS
 wss.on('connection', function connection(ws, req) {
-    console.log(`Cliente conectado por canal WSS seguro: ${req.socket.remoteAddress}`);
-    
-    // --- SIMULACIÓN DE NOTIFICACIÓN EN TIEMPO REAL ---
-    setTimeout(() => {
-        const message = JSON.stringify({
-            tipo: 'alerta_precio',
-            producto: 'Artículo Z',
-            mensaje: 'Alerta generada por el Backend y enviada por WSS.',
-            protocolo: 'WSS Cifrado'
-        });
-        ws.send(message); 
-        console.log('Notificación de alerta enviada por WSS.');
-    }, 10000);
+    console.log(`Cliente WSS conectado.`);
+    
+    // El setTimeout de prueba de 10 segundos fue removido, puedes agregarlo aquí si lo necesitas.
 
-    ws.on('close', () => console.log('Cliente desconectado del canal WSS.'));
+    ws.on('close', () => console.log('Cliente WSS desconectado.'));
 });
 
-iniciarBaseDeDatos()
-    .then(() => {
-        // Iniciamos el servidor HTTPS/WSS
-        httpsServer.listen(port, () => {
-            console.log(`Servidor API REST y WSS Cifrado escuchando en https://localhost:${port}`);
-        });
-    });
+// Inicialización
+sequelize.authenticate()
+    .then(() => {
+        console.log("[Gateway] Conexión DB OK. Iniciando servidores...");
+        httpsServer.listen(port, () => {
+            console.log(`[Gateway] Servidor API REST y WSS escuchando en https://localhost:${port}`);
+        });
+    })
+    .catch(error => {
+        console.error("Error al iniciar el Gateway (DB):", error.message);
+        process.exit(1); 
+    });

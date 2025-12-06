@@ -112,7 +112,50 @@ const Inconsistencia = sequelize.define('Inconsistencia', {
   }
 });
 
-// 3. Sincronización
+const Calificacion = sequelize.define('Calificacion', {
+    puntuacion: {
+        type: DataTypes.DECIMAL(2, 1), 
+        allowNull: false,
+        validate: {
+            min: 1.0,
+            max: 5.0
+        }
+    },
+    comentario: {
+        type: DataTypes.TEXT,
+        comment: 'Comentario opcional del usuario.'
+    },
+    usuario_anonimo: {
+        type: DataTypes.STRING,
+        defaultValue: 'Anonimo',
+        comment: 'Nombre de usuario que envió la calificación'
+    }
+});
+
+Supermercado.hasMany(Producto, {
+
+  foreignKey: 'supermercadoId', 
+  as: 'ofertas' 
+
+});
+
+Supermercado.hasMany(Calificacion, {
+    foreignKey: 'supermercadoId',
+    as: 'reviews' 
+});
+
+Calificacion.belongsTo(Supermercado, {
+    foreignKey: 'supermercadoId', 
+    as: 'tienda_calificada' 
+});
+
+Producto.belongsTo(Supermercado, {
+
+  foreignKey: 'supermercadoId',
+  as: 'tienda'
+    
+});
+
 async function iniciarBaseDeDatos() {
 
   try {
@@ -130,26 +173,13 @@ async function iniciarBaseDeDatos() {
 
 iniciarBaseDeDatos();
 
-Supermercado.hasMany(Producto, {
-
-  foreignKey: 'supermercadoId', 
-  as: 'ofertas' 
-
-});
-
-Producto.belongsTo(Supermercado, {
-
-  foreignKey: 'supermercadoId',
-  as: 'tienda'
-    
-});
-
 module.exports = {
 
   sequelize,
   Producto,
   Supermercado,
   Inconsistencia,
+  Calificacion,
   Sequelize 
 
 };
