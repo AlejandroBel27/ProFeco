@@ -1,103 +1,182 @@
 const express = require('express');
 const app = express();
-const port = 3000;
+const port = 3003; 
 
-// --- 1. Importaciones ---
-const https = require('https');
-const fs = require('fs');
-const WebSocket = require('ws');
-// Usamos Inconsistencia y sequelize directamente para el reporte SÍNCRONO
-const { sequelize, Inconsistencia } = require('./modeloProducto'); 
+const axios = require('axios'); // Cliente HTTP para notificaciones
+const https = require('https'); // Necesario para ignorar certificados self-signed
 
-// Cargar certificados SSL (deben estar en la misma carpeta)
-const credentials = {
-    key: fs.readFileSync('private.key', 'utf8'),
-    cert: fs.readFileSync('certificate.crt', 'utf8')
-};
+// Importar modelos de DB
+const { 
+    sequelize, 
+    Supermercado, 
+    Producto, 
+    Sequelize 
+} = require('./modeloProducto'); 
 
-// --- 2. CONFIGURACIÓN DE EXPRESS ---
+// Configuración Express
 app.use(express.json());
 
-// Ruta de prueba
-app.get('/', (req, res) => {
-    // Si estás aquí, el navegador confía en el certificado, lo cual es bueno para WSS.
-    res.send('API Gateway y WSS funcionando. Los microservicios escuchan en otros puertos.');
+// --- Funciones de Soporte ---
+
+// Notificación WSS: Envía solicitud al API Gateway (Puerto 3000)
+async function notificarOferta(oferta) {
+    try {
+        const urlWSS = 'https://localhost:3000/api/notificaciones'; 
+
+        // Agente HTTPS para ignorar el certificado autofirmado (dev)
+        const agent = new https.Agent({ rejectUnauthorized: false }); 
+        
+        await axios.post(urlWSS, oferta, { httpsAgent: agent });
+        console.log(`[Mercado] Notificación de oferta enviada a API Gateway (WSS).`);
+    } catch (error) {
+        console.error(`[Mercado] Error al notificar a WSS Channel: ${error.message}`);
+    }
+}
+
+// --- Rutas de Gestión del Mercado ---
+
+// 1. Listar Supermercados (GET /api/supermercados)
+app.get('/api/supermercados', async (req, res) => {
+    try {
+        const supermercados = await Supermercado.findAll({
+            attributes: ['id', 'nombre', 'direccion', 'calificacion_promedio', 'createdAt'],
+            order: [['calificacion_promedio', 'DESC']]
+        });
+
+        res.status(200).json({ 
+            total_supermercados: supermercados.length,
+            supermercados 
+        });
+
+    } catch (error) {
+        console.error("[Mercado] ERROR: Obtener Supermercados:", error.message);
+        res.status(500).json({ error: 'Error al consultar la lista de supermercados.', detalles: error.message });
+    }
 });
 
-// Ruta: Registrar Inconsistencias (MÉTODO SÍNCRONO)
-// Mantenida en el Gateway para la notificación WSS inmediata
-app.post('/api/reportes', async (req, res) => {
-    const tarea = req.body;
-    
-    if (!tarea || !tarea.tipo || !tarea.datos) {
-        return res.status(400).json({ error: 'Faltan campos "tipo" o "datos" en la tarea del reporte.' });
-    }
-
+// 2. Crear Supermercado (POST /api/supermercados)
+app.post('/api/supermercados', async (req, res) => {
     try {
-        const { producto, supermercado, precio, descripcion } = tarea.datos;
-        
-        // PERSISTENCIA DIRECTA (SÍNCRONA)
-        const nuevoReporte = await Inconsistencia.create({
-            producto_nombre: producto,
-            supermercado_reportado: supermercado,
-            precio_encontrado: precio,
-            descripcion: descripcion,
-            estado: 'PENDIENTE'
+        const nuevoSupermercado = await Supermercado.create(req.body);
+
+        res.status(201).json({ 
+            mensaje: 'Supermercado creado exitosamente.',
+            supermercado: nuevoSupermercado 
         });
 
-        console.log(`[Gateway - SÍNCRONO] Reporte de ${producto} guardado. ID: ${nuevoReporte.id}`);
-
-        // ENVÍO DE NOTIFICACIÓN EN TIEMPO REAL A TODOS LOS CLIENTES WSS
-        const broadcastMessage = JSON.stringify({
-            tipo: 'nuevo_reporte',
-            mensaje: `Se ha recibido un nuevo reporte de inconsistencia sobre ${producto}.`,
-            id: nuevoReporte.id 
-        });
-        wss.clients.forEach(client => {
-            if (client.readyState === WebSocket.OPEN) {
-                client.send(broadcastMessage);
-            }
-        });
-        console.log(`[WSS] Notificación de nuevo reporte enviada a ${wss.clients.size} clientes.`);
-
-        res.status(202).json({ 
-            mensaje: 'Reporte guardado y notificado.',
-            detalle: `ID: ${nuevoReporte.id}`
-        });
-        
     } catch (error) {
-        console.error("Error al procesar reporte síncrono:", error.message); 
-        res.status(500).json({ 
-            error: 'No se pudo guardar el reporte.', 
+        console.error("[Mercado] ERROR: Crear Supermercado:", error.message);
+        res.status(400).json({ 
+            error: 'No se pudo crear el supermercado.', 
             detalles: error.message 
         });
     }
 });
 
+// 3. Registrar/Actualizar Precios (POST /api/precios)
+app.post('/api/precios', async (req, res) => {
+    try {
+        const { nombre, precio, sku, categoria, supermercadoId } = req.body;
 
-// --- 3. CONFIGURACIÓN DE WSS Y ENTRADA PRINCIPAL ---
+        if (!nombre || !precio || !supermercadoId) {
+            return res.status(400).json({ error: "Faltan datos obligatorios." });
+        }
 
-const httpsServer = https.createServer(credentials, app);
+        // Busca o crea el producto asociado al supermercado
+        const [producto, creado] = await Producto.findOrCreate({
+            where: { nombre: nombre, supermercadoId: supermercadoId },
+            defaults: { nombre, precio, sku: sku || 'N/A', categoria, supermercadoId, enOferta: false } 
+        });
 
-const wss = new WebSocket.Server({ server: httpsServer });
+        if (!creado) {
+            // Actualizar si ya existía
+            await producto.update({ precio, categoria, sku, enOferta: false });
+            return res.status(200).json({ mensaje: `Precio actualizado para ${nombre}.`, producto });
+        }
 
-wss.on('connection', function connection(ws, req) {
-    console.log(`Cliente WSS conectado.`);
-    
-    // El setTimeout de prueba de 10 segundos fue removido, puedes agregarlo aquí si lo necesitas.
+        res.status(201).json({ mensaje: `Nuevo producto-precio registrado para ${nombre}.`, producto });
 
-    ws.on('close', () => console.log('Cliente WSS desconectado.'));
+    } catch (error) {
+        console.error("[Mercado] ERROR: Cargar Precio:", error.message);
+        res.status(500).json({ error: 'Error al registrar el precio.', detalles: error.message });
+    }
 });
 
-// Inicialización
-sequelize.authenticate()
-    .then(() => {
-        console.log("[Gateway] Conexión DB OK. Iniciando servidores...");
-        httpsServer.listen(port, () => {
-            console.log(`[Gateway] Servidor API REST y WSS escuchando en https://localhost:${port}`);
+// 4. Publicar Oferta y Notificar WSS (POST /)
+// Ruta raíz asumida como /api/ofertas en el Gateway
+app.post('/', async (req, res) => { 
+    try {
+        const { nombre, precio, sku, categoria, supermercadoId, porcentajeDescuento } = req.body;
+
+        if (!nombre || !precio || !supermercadoId || !porcentajeDescuento) {
+            return res.status(400).json({ error: "Faltan datos obligatorios para la oferta." });
+        }
+
+        // 1. Guardar o actualizar el precio y marcar como OFERTA
+        const [producto, creado] = await Producto.findOrCreate({
+            where: { nombre: nombre, supermercadoId: supermercadoId },
+            defaults: { nombre, precio, sku: sku || 'N/A', categoria, supermercadoId, enOferta: true }
         });
-    })
-    .catch(error => {
-        console.error("Error al iniciar el Gateway (DB):", error.message);
+        
+        await producto.update({ precio, categoria, sku, enOferta: true }); 
+
+        // 2. Obtener datos del supermercado para la notificación WSS
+        const supermercado = await Supermercado.findByPk(supermercadoId);
+
+        const ofertaData = {
+            producto: nombre,
+            supermercado: supermercado ? supermercado.nombre : 'Desconocido',
+            precio: precio,
+            descuento: porcentajeDescuento
+        };
+        
+        // 3. Notificación WSS (asíncrona)
+        notificarOferta(ofertaData); 
+
+        res.status(201).json({ 
+            mensaje: `Oferta registrada para ${nombre} y notificación enviada.`, 
+            producto 
+        });
+
+    } catch (error) {
+        console.error("[Mercado] ERROR: Publicar Oferta:", error.message);
+        res.status(500).json({ error: 'Error al publicar la oferta.', detalles: error.message });
+    }
+});
+
+
+// --- Inicialización y Seeding de DB ---
+async function iniciarBaseDeDatos() {
+    try {
+        await sequelize.authenticate();
+        console.log("[Mercado] Conexión exitosa a MySQL.");
+        
+        // Creación de datos iniciales (Seeding)
+        const [supermercado, creado] = await Supermercado.findOrCreate({
+            where: { id: 1 }, 
+            defaults: { 
+                nombre: 'Super Prueba Central', 
+                direccion: 'Calle de Prueba 101', 
+                calificacion_promedio: 5.0 
+            }
+        });
+
+        if (creado) {
+            console.log("✅ Supermercado inicial ID 1 creado para pruebas.");
+        } else {
+            console.log("✅ Supermercado inicial ID 1 ya existe.");
+        }
+
+    } catch (error) {
+        console.error("[Mercado] Error al iniciar la DB:", error.message);
         process.exit(1); 
+    }
+}
+
+// --- Inicializar y Correr Servidor ---
+iniciarBaseDeDatos()
+    .then(() => {
+        app.listen(port, () => {
+            console.log(`[Mercado] Microservicio-Mercado escuchando en http://localhost:${port}`);
+        });
     });

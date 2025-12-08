@@ -1,0 +1,45 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <title>💼 Profeco: Consulta y Gestión de Reportes</title>
+    <link rel="stylesheet" href="../styles.css"> 
+    <style>
+        .reporte-item {
+            border: 1px solid #ddd;
+            padding: 10px;
+            margin-bottom: 10px;
+            border-radius: 6px;
+        }
+        .estado-pendiente { background-color: #fff3cd; border-color: #ffeeba; }
+        .estado-cerrado { background-color: #d4edda; border-color: #c3e6cb; }
+        .btn-cerrar { background-color: #dc3545; margin-left: 10px; }
+        .btn-cerrar:hover { background-color: #c82333; }
+        .header-section { display: flex; justify-content: space-between; align-items: center; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🔍 Profeco: Gestión y Consulta de Inconsistencias</h1>
+        <p>Esta interfaz consulta el estado de los reportes de precios enviados por los consumidores a través de la cola RabbitMQ.</p>
+
+        <div class="header-section">
+            <h2>Reportes de Inconsistencia</h2>
+            <button onclick="cargarReportes()">Actualizar Reportes</button>
+        </div>
+
+        <div id="reportes-list">
+            <p>Presiona 'Actualizar Reportes' para ver los datos...</p>
+        </div>
+
+        <hr>
+
+        <h2>Consultar Reporte por ID</h2>
+        <input type="number" id="reporteId" placeholder="ID del Reporte" style="width: 200px; display: inline-block;">
+        <button onclick="consultarReporteId()" style="width: auto; display: inline-block;">Consultar</button>
+        <div id="consulta-individual"></div>
+
+    </div>
+    <script src="profeco.js"></script>
+</body>
+</html>

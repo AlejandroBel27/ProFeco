@@ -1,0 +1,39 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <title>🏬 Mercado: Gestión de Ofertas</title>
+    <link rel="stylesheet" href="../styles.css"> 
+</head>
+<body>
+    <div class="container">
+        <h1>🛒 Gestión de Ofertas del Microservicio Mercado</h1>
+        <p>Utiliza este formulario para registrar una oferta. Esta acción llama al **Back_Mercado** (a través del API Gateway), el cual notificará a todos los clientes conectados por **WSS**.</p>
+
+        <form id="oferta-form">
+            <h2>Publicar Nueva Oferta y Disparar WSS</h2>
+            <p>Datos de la oferta:</p>
+
+            <label for="supermercadoId">ID de Supermercado (Ej. 1: Bodega; 2: Chedrahui):</label>
+            <input type="number" id="supermercadoId" value="1" required><br>
+            
+            <label for="nombre">Nombre del Producto:</label>
+            <input type="text" id="nombre" value="Refresco Coca-Cola 2L" required><br>
+            
+            <label for="precio">Precio de Oferta:</label>
+            <input type="number" id="precio" step="0.01" value="28.00" required><br>
+            
+            <label for="porcentajeDescuento">% Descuento (Para el mensaje WSS):</label>
+            <input type="number" id="porcentajeDescuento" value="10" required><br>
+
+            <label for="sku">SKU (Identificador):</label>
+            <input type="text" id="sku" value="COLA2001"><br>
+
+            <button type="submit">Publicar Oferta y Notificar a Consumidores</button>
+        </form>
+
+        <div id="feedback-mercado"></div>
+    </div>
+    <script src="mercado.js"></script>
+</body>
+</html>

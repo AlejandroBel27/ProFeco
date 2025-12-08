@@ -1,7 +1,7 @@
 const { Sequelize, DataTypes } = require('sequelize');
 
 
-const sequelize = new Sequelize('db_mercado', 'root', 'admin', { 
+const sequelize = new Sequelize('db_consumidor', 'root', 'admin', { 
   host: 'localhost',
   dialect: 'mysql',
   logging: false // Desactivar logs de SQL en consola
@@ -68,7 +68,7 @@ const Inconsistencia = sequelize.define('Inconsistencia', {
   },
   precio_encontrado: {
     type: DataTypes.DECIMAL(10, 2),
-    comment: 'Precio encontrado por el cliente'
+    comment: 'Precio que el cliente encontró'
   },
   descripcion: {
     type: DataTypes.TEXT,
@@ -92,16 +92,16 @@ const Calificacion = sequelize.define('Calificacion', {
     },
     comentario: {
         type: DataTypes.TEXT,
-        comment: 'Comentario opcional del usuario.'
+        comment: 'Comentario opcional'
     },
     usuario_anonimo: {
         type: DataTypes.STRING,
         defaultValue: 'Anonimo',
-        comment: 'Nombre de usuario que envió la calificación'
+        comment: 'Usuario que envió la calificación'
     }
 });
 
-// Modelo: Wishlist
+// NUEVO MODELO: Wishlist
 const Wishlist = sequelize.define('Wishlist', {
     usuarioId: {
         type: DataTypes.INTEGER,

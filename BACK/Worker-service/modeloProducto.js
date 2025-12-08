@@ -1,7 +1,7 @@
 const { Sequelize, DataTypes } = require('sequelize');
 
-
-const sequelize = new Sequelize('db_mercado', 'root', 'admin', { 
+// Configuración de conexión a MySQL
+const sequelize = new Sequelize('db_profeco', 'root', 'admin', { 
   host: 'localhost',
   dialect: 'mysql',
   logging: false // Desactivar logs de SQL en consola
@@ -92,7 +92,7 @@ const Calificacion = sequelize.define('Calificacion', {
     },
     comentario: {
         type: DataTypes.TEXT,
-        comment: 'Comentario opcional del usuario.'
+        comment: 'Comentario opcional.'
     },
     usuario_anonimo: {
         type: DataTypes.STRING,

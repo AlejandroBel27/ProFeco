@@ -1,136 +1,90 @@
 const express = require('express');
 const app = express();
-// Puerto para este microservicio
-const port = 3001; 
+const amqp = require('amqplib'); 
+const cors = require('cors');
+// const { Sequelize, DataTypes } = require('sequelize');
+const PORT = 3001;
+const RABBITMQ_URL = 'amqp://localhost'; 
 
-// Importar la lógica de persistencia (Sequelize) desde el Back_Mercado
-const { sequelize, Producto, Supermercado, Calificacion, Sequelize } = require('../Back_Mercado/modeloProducto');
-
-// Configuración de Express
+// Configuración Express
 app.use(express.json());
+app.use(cors()); 
 
-// --- Funciones de Inicialización ---
-async function iniciarBaseDeDatos() {
+// SIMULACIÓN DB (Memoria)
+let wishlistDB = {
+    '101': { nombreLista: 'Favoritos de Ale', productos: ['LECHE-LALA', 'ATUN-DOLORES'] },
+    '102': { nombreLista: 'Artículos de Limpieza', productos: ['PINOL', 'FABULOSO'] }
+};
+
+let channel; // Conexión RabbitMQ
+
+// Conectar RabbitMQ (Productor)
+async function connectRabbitMQ() {
     try {
-        await sequelize.authenticate();
-        console.log("[Consumidor] Conexión exitosa a MySQL.");
+        const connection = await amqp.connect(RABBITMQ_URL);
+        channel = await connection.createChannel();
+        // Asegurar cola para reportes
+        await channel.assertQueue('reportes_inconsistencia', { durable: true });
+        console.log("✅ Conectado a RabbitMQ como Productor.");
     } catch (error) {
-        console.error("[Consumidor] Error al iniciar la DB:", error.message);
-        process.exit(1); 
+        console.error("❌ Error al conectar a RabbitMQ:", error.message);
+        // El servicio HTTP continúa si falla RabbitMQ
     }
 }
+connectRabbitMQ();
 
-// --- Rutas del Consumidor ---
+// --- RUTAS DEL MICROSERVICIO CONSUMIDOR ---
 
-// 1. Obtener Productos y Precios para Comparación
-app.get('/api/productos', async (req, res) => {
+// 1. WISHLIST: OBTENER (GET /:usuarioId)
+// Recibe ruta raíz del proxy /api/wishlist
+app.get('/:usuarioId', async (req, res) => {
     try {
-        const { nombre } = req.query; 
+        const usuarioId = req.params.usuarioId;
+        const wishlist = wishlistDB[usuarioId] || { nombreLista: 'Nueva Lista', productos: [] };
+        
+        console.log(`[GET /${usuarioId}] Solicitud de Wishlist.`);
 
-        const opcionesConsulta = {
-            include: [{
-                model: Supermercado,
-                as: 'tienda', 
-                attributes: ['nombre', 'direccion', 'calificacion_promedio']
-            }]
-        };
+        return res.status(200).json({ 
+            mensaje: `Wishlist cargada para el usuario ${usuarioId}.`,
+            wishlist: wishlist
+        });
 
-        if (nombre) {
-            opcionesConsulta.where = {
-                nombre: {
-                    [Sequelize.Op.like]: `%${nombre}%` 
-                }
-            };
+    } catch (error) {
+        console.error("❌ Error al cargar Wishlist:", error);
+        return res.status(500).json({ 
+            error: "Error interno del servidor al cargar la Wishlist." 
+        });
+    }
+});
+
+// 2. WISHLIST: AÑADIR PRODUCTO (POST /:usuarioId/producto)
+app.post('/:usuarioId/producto', async (req, res) => {
+    try {
+        const usuarioId = req.params.usuarioId;
+        const { skuProducto } = req.body;
+        
+        console.log(`[POST /${usuarioId}/producto] Solicitud para añadir SKU: ${skuProducto}`);
+
+        if (!wishlistDB[usuarioId]) {
+            wishlistDB[usuarioId] = { nombreLista: 'Nueva Lista', productos: [] };
         }
         
-        const productos = await Producto.findAll(opcionesConsulta);
-        
-        res.json({ productos });
-    } catch (error) {
-        console.error("[Consumidor] ERROR: Comparación de Precios:", error.message); 
-        res.status(500).json({ error: 'Error al obtener productos.', detalles: error.message });
-    }
-});
-
-// 2. Obtener Calificaciones por Supermercado
-app.get('/api/calificaciones/:supermercadoId', async (req, res) => {
-    try {
-        const { supermercadoId } = req.params; 
-
-        const supermercado = await Supermercado.findByPk(supermercadoId);
-        if (!supermercado) {
-            return res.status(404).json({ error: "Supermercado no encontrado." });
+        if (!wishlistDB[usuarioId].productos.includes(skuProducto)) {
+            wishlistDB[usuarioId].productos.push(skuProducto);
+            return res.status(200).json({ 
+                mensaje: `Producto ${skuProducto} añadido a la Wishlist de ${usuarioId}.`,
+                wishlist: wishlistDB[usuarioId]
+            });
+        } else {
+            return res.status(200).json({ 
+                mensaje: `Producto ${skuProducto} ya estaba en la lista.`
+            });
         }
 
-        const calificaciones = await Calificacion.findAll({
-            where: { supermercadoId: supermercadoId },
-            order: [['createdAt', 'DESC']], 
-            attributes: ['puntuacion', 'comentario', 'usuario_anonimo', 'createdAt'] 
-        });
-
-        res.status(200).json({ 
-            supermercado_nombre: supermercado.nombre,
-            promedio_actual: supermercado.calificacion_promedio,
-            total_calificaciones: calificaciones.length,
-            calificaciones
-        });
-
     } catch (error) {
-        console.error("[Consumidor] ERROR: Obtener Calificaciones:", error.message);
-        res.status(500).json({ error: 'Error al consultar las calificaciones.', detalles: error.message });
+        console.error("❌ Error al agregar producto a Wishlist:", error);
+        return res.status(500).json({ 
+            error: "Error interno del servidor al actualizar Wishlist." 
+        });
     }
 });
-
-// 3. Registrar Calificaciones y Actualizar Promedio
-app.post('/api/calificaciones', async (req, res) => {
-    const { supermercadoId, puntuacion, comentario, usuario_anonimo } = req.body;
-    
-    if (!supermercadoId || !puntuacion) {
-        return res.status(400).json({ error: "Faltan datos obligatorios (supermercadoId y puntuacion)." });
-    }
-
-    try {
-        const supermercado = await Supermercado.findByPk(supermercadoId);
-        if (!supermercado) {
-            return res.status(404).json({ error: "Supermercado no encontrado." });
-        }
-
-        await Calificacion.create({
-            supermercadoId,
-            puntuacion,
-            comentario,
-            usuario_anonimo
-        });
-
-        const resultadoPromedio = await Calificacion.findAll({
-            attributes: [
-                [Sequelize.fn('AVG', Sequelize.col('puntuacion')), 'promedio']
-            ],
-            where: { supermercadoId: supermercadoId },
-            raw: true
-        });
-
-        const nuevoPromedio = parseFloat(resultadoPromedio[0].promedio).toFixed(1);
-
-        await supermercado.update({ calificacion_promedio: nuevoPromedio });
-
-        res.status(201).json({ 
-            mensaje: `Calificación de ${puntuacion} guardada. Promedio actualizado a ${nuevoPromedio}.`,
-            supermercado_id: supermercadoId,
-            nuevo_promedio: nuevoPromedio
-        });
-
-    } catch (error) {
-        console.error("[Consumidor] ERROR: Guardar Calificación:", error.message);
-        res.status(500).json({ error: 'Error al registrar la calificación.', detalles: error.message });
-    }
-});
-
-
-// --- Inicializar y Correr Servidor ---
-iniciarBaseDeDatos()
-    .then(() => {
-        app.listen(port, () => {
-            console.log(`[Consumidor] Microservicio-Consumidor escuchando en http://localhost:${port}`);
-        });
-    });
