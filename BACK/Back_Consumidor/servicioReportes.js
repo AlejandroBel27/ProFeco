@@ -5,7 +5,7 @@ const AMQP_URL = 'amqp://localhost';
 const QUEUE_NAME = 'reportes_inconsistencia';
 
 /**
- * Conecta a RabbitMQ y envía un mensaje a la cola.
+ * Conecta a RabbitMQ y envía un mensaje a la cola. 
  * @param {object} tarea - Datos del reporte a encolar.
  */
 async function enviarTareaReporte(tarea) {
