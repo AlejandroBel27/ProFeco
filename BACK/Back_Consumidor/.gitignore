@@ -1,0 +1,19 @@
+# Archivos de logs
+*.log
+*.err
+
+# Dependencias de Node.js
+node_modules/
+
+# Archivos de compilación o temporales
+build/
+dist/
+*.tmp
+
+# Archivos de configuración local o secretos (NO SUBIR)
+.env
+.DS_Store
+
+# Archivos específicos de IDEs (VSCode, IntelliJ, etc.)
+.vscode/
+.idea/

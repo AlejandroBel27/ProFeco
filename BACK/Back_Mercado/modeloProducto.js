@@ -1,7 +1,7 @@
 const { Sequelize, DataTypes } = require('sequelize');
 
 
-const sequelize = new Sequelize('db_mercado', 'root', 'admin', { 
+const sequelize = new Sequelize('db_mercado', 'root', 'amospro2024', { 
   host: 'localhost',
   dialect: 'mysql',
   logging: false // Desactivar logs de SQL en consola

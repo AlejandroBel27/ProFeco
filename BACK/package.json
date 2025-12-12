@@ -1,0 +1,24 @@
+{
+  "name": "sistema-profeco",
+  "version": "1.0.0",
+  "description": "Arquitectura completa: API Gateway + Microservicios + Worker + RabbitMQ + WebSockets",
+  "main": "index.js",
+  "scripts": {
+    "start:gateway": "cd API_Gateway && node server.js",
+    "start:consumidor": "cd Back_Consumidor && node index.js",
+    "start:mercado": "cd Back_Mercado && node server.js",
+    "start:profeco": "cd Back_Profeco && node index.js",
+    "start:worker": "cd Worker-service && node report_worker.js",
+
+    "start:rabbitmq:win": "echo Saltando inicio de RabbitMQ (no está como servicio).",
+    "start:rabbitmq:linux": "sudo systemctl start rabbitmq-server",
+
+    "start:all:win": "npm run start:rabbitmq:win && start cmd /k \"npm run start:gateway\" && start cmd /k \"npm run start:consumidor\" && start cmd /k \"npm run start:mercado\" && start cmd /k \"npm run start:profeco\" && start cmd /k \"npm run start:worker\"",
+
+    "start:all:linux": "npm run start:rabbitmq:linux && npm run start:gateway & npm run start:consumidor & npm run start:mercado & npm run start:profeco & npm run start:worker &",
+
+    "system": "npm run start:all:win"
+  },
+  "author": "Tu nombre",
+  "license": "MIT"
+}
