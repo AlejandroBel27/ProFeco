@@ -2,6 +2,7 @@ const express = require('express');
 const app = express();
 const port = 3003; 
 
+const cors = require('cors');
 const axios = require('axios'); // Cliente HTTP para notificaciones
 const https = require('https'); // Necesario para ignorar certificados self-signed
 
@@ -12,6 +13,8 @@ const {
     Producto, 
     Sequelize 
 } = require('./modeloProducto'); 
+
+app.use(cors());
 
 // Configuración Express
 app.use(express.json());

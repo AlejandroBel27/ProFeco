@@ -1,6 +1,7 @@
 {
   "dependencies": {
     "amqplib": "^0.10.9",
+    "cors": "^2.8.5",
     "express": "^5.1.0",
     "express-http-proxy": "^2.1.2",
     "mysql2": "^3.15.3",
